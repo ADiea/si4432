@@ -5,7 +5,7 @@
 #define DEBUG
 
 Si4432::Si4432(uint8_t sdnPin, uint8_t InterruptPin) :
-		_sdnPin(sdnPin), _intPin(InterruptPin), _freqCarrier(433000000), _freqChannel(0), _bps(500000), _packageSign(
+		_sdnPin(sdnPin), _intPin(InterruptPin), _freqCarrier(433000000), _freqChannel(0), _bps(100000), _packageSign(
 				0xDEAD) { // default is 450 mhz
 
 }
@@ -230,6 +230,10 @@ void Si4432::ChangeRegister(Registers reg, byte value) {
 
 void Si4432::setBaudRate(uint64_t bps) {
 
+	if ((bps > 256000) || (bps < 30000)) // less then 30kpbs is normalliy ok, but i must find the proper register to change first - TODO
+		return;
+		
+	_bps = bps;
 	uint16_t bpsRegVal = (bps / 1000000.0) * 65536;
 
 	byte vals[] = { bpsRegVal >> 8, bpsRegVal & 0x0F };
