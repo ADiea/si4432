@@ -5,13 +5,14 @@
 #define DEBUG
 
 Si4432::Si4432(uint8_t sdnPin, uint8_t InterruptPin) :
-		_sdnPin(sdnPin), _intPin(InterruptPin), _freqCarrier(450000000), _freqChannel(0), _bps(500000), _packageSign(
+		_sdnPin(sdnPin), _intPin(InterruptPin), _freqCarrier(433000000), _freqChannel(0), _bps(500000), _packageSign(
 				0xDEAD) { // default is 450 mhz
 
 }
 
 void Si4432::setFrequency(unsigned long baseFrequency) {
 
+	_freqCarrier = baseFrequency;
 	if ((baseFrequency < 240000000UL) || (baseFrequency > 930000000UL))
 		return; // invalid frequency
 
@@ -27,7 +28,7 @@ void Si4432::setFrequency(unsigned long baseFrequency) {
 	uint16_t freqcarrier = (fPart - (double) freqband) * 64000;
 
 	// sideband is always on (0x40) :
-	byte vals[] = { 0x40 | (highBand << 6) | (freqband & 0x3F), freqcarrier >> 8, freqcarrier & 0xFF };
+	byte vals[3] = { 0x40 | (highBand << 5) | (freqband & 0x3F), freqcarrier >> 8, freqcarrier & 0xFF };
 
 	BurstWrite(REG_FREQBAND, vals, 3);
 
@@ -36,11 +37,11 @@ void Si4432::setFrequency(unsigned long baseFrequency) {
 void Si4432::setCommsSignature(uint16_t signature) {
 	_packageSign = signature;
 
-	ChangeRegister(REG_TRANSMIT_HEADER3, _packageSign >> 8); // header (signature) byte 3 val
-	ChangeRegister(REG_TRANSMIT_HEADER2, (_packageSign & 0xFF)); // header (signature) byte 2 val
+	ChangeRegister(REG_TRANSMIT_HEADER1, _packageSign >> 8); // header (signature) byte 3 val
+	ChangeRegister(REG_TRANSMIT_HEADER0, (_packageSign & 0xFF)); // header (signature) byte 2 val
 
-	ChangeRegister(REG_CHECK_HEADER3, _packageSign >> 8); // header (signature) byte 3 val for receive checks
-	ChangeRegister(REG_CHECK_HEADER2, (_packageSign & 0xFF)); // header (signature) byte 2 val for receive checks
+	ChangeRegister(REG_CHECK_HEADER1, _packageSign >> 8); // header (signature) byte 3 val for receive checks
+	ChangeRegister(REG_CHECK_HEADER0, (_packageSign & 0xFF)); // header (signature) byte 2 val for receive checks
 
 #ifdef DEBUG
 	Serial.println("Package signature is set!");
@@ -104,13 +105,15 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 
 	ChangeRegister(REG_PKG_LEN, length);
 
-	switchMode(TXMode | TuneMode);
-
-	if (_intPin != 0) {
-		ChangeRegister(REG_INT_ENABLE1, 0x04); // set interrupts on for package sent
-	}
-
 	BurstWrite(REG_FIFO, data, length);
+
+	ChangeRegister(REG_INT_ENABLE1, 0x04); // set interrupts on for package sent
+	ChangeRegister(REG_INT_ENABLE2, 0x00); // set interrupts off for anything else
+	//read interrupt registers to clean them
+	ReadRegister(REG_INT_STATUS1);
+	ReadRegister(REG_INT_STATUS2);
+
+	switchMode(TXMode | Ready);
 
 	uint64_t enterMillis = millis();
 
@@ -119,22 +122,34 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 			continue;
 		}
 
-		byte intStat = ReadRegister(REG_INT_STATUS1);
+		byte intStatus = ReadRegister(REG_INT_STATUS1);
+		ReadRegister(REG_INT_STATUS2);
 
-		if (intStat & 0x04) {
+		if (intStatus & 0x04) {
+			switchMode(Ready);
 #ifdef DEBUG
 			Serial.print("Package sent! -- ");
-			Serial.println(intStat, HEX);
+			Serial.println(intStatus, HEX);
 #endif
 			// package sent. now, return true if not to wait ack, or wait ack (wait for packet only for 'remaining' amount of time)
-			if ((waitResponse) && (waitForPacket(enterMillis + ackTimeout - millis()))) {
-				getPacketReceived(responseLength, responseBuffer);
-				return true;
+			if (waitResponse) {
+				if (waitForPacket(enterMillis + ackTimeout - millis())) {
+					getPacketReceived(responseLength, responseBuffer);
+					return true;
+				} else
+					return false;
 			} else
 				return true;
 		}
+
 	}
+
 	//timeout occured.
+#ifdef DEBUG
+	Serial.println("Timeout in Transit -- ");
+#endif
+	switchMode(Ready);
+	clearTxFIFO();
 
 	return false;
 
@@ -142,11 +157,14 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 
 bool Si4432::waitForPacket(uint64_t waitMs) {
 
-	switchMode(RXMode | TuneMode);
+	switchMode(RXMode | Ready);
 
-	if (_intPin != 0) {
-		ChangeRegister(REG_INT_ENABLE1, 0x03); // set interrupts on for package received and CRC error
-	}
+	ChangeRegister(REG_INT_ENABLE1, 0x03); // set interrupts on for package received and CRC error
+	ChangeRegister(REG_INT_ENABLE2, 0x00); // set other interrupts off
+	//read interrupt registers to clean them
+	ReadRegister(REG_INT_STATUS1);
+	ReadRegister(REG_INT_STATUS2);
+
 	uint64_t enterMillis = millis();
 
 	while (millis() - enterMillis < waitMs) {
@@ -155,14 +173,17 @@ bool Si4432::waitForPacket(uint64_t waitMs) {
 		}
 		// check for package received status at EzMAC status register
 		byte intStat = ReadRegister(REG_INT_STATUS1);
+		ReadRegister(REG_INT_STATUS2);
 
 		if (intStat & 0x02) { //interrupt occured, check it && read the Interrupt Status1 register for 'valid packet'
+			switchMode(Ready);
 #ifdef DEBUG
 			Serial.print("Packet detected -- ");
 			Serial.println(intStat, HEX);
 #endif
 			return true;
 		} else if (intStat & 0x01) { // packet crc error
+			switchMode(Ready);
 #ifdef DEBUG
 			Serial.print("CRC Error in Packet detected!-- ");
 			Serial.println(intStat, HEX);
@@ -170,7 +191,13 @@ bool Si4432::waitForPacket(uint64_t waitMs) {
 			return false;
 		}
 	}
-//timeout occured.
+	//timeout occured.
+#ifdef DEBUG
+	Serial.println("Timeout in receive-- ");
+#endif
+
+	switchMode(Ready);
+	clearRxFIFO();
 
 	return false;
 }
@@ -178,8 +205,6 @@ bool Si4432::waitForPacket(uint64_t waitMs) {
 void Si4432::getPacketReceived(uint8_t* length, byte* readData) {
 
 	*length = ReadRegister(REG_RECEIVED_LENGTH);
-
-	byte readLen = 0;
 
 	BurstRead(REG_FIFO, readData, *length);
 
@@ -191,8 +216,12 @@ void Si4432::setChannel(byte channel) {
 
 }
 
-void Si4432::switchMode(int mode) {
+void Si4432::switchMode(byte mode) {
 	ChangeRegister(REG_STATE, mode); // receive mode
+	delay(5);
+#ifdef DEBUG
+	ReadRegister(REG_DEV_STATUS);
+#endif
 }
 
 void Si4432::ChangeRegister(Registers reg, byte value) {
@@ -201,7 +230,7 @@ void Si4432::ChangeRegister(Registers reg, byte value) {
 
 void Si4432::setBaudRate(uint64_t bps) {
 
-	uint16_t bpsRegVal = bps / 1000000 * 65536;
+	uint16_t bpsRegVal = (bps / 1000000.0) * 65536;
 
 	byte vals[] = { bpsRegVal >> 8, bpsRegVal & 0x0F };
 
@@ -223,9 +252,9 @@ void Si4432::BurstWrite(Registers startReg, const byte value[], uint8_t length) 
 
 #ifdef DEBUG
 
-	for (int i = 0; i < length; ++i) {
+	for (byte i = 0; i < length; ++i) {
 		Serial.print("Writing: ");
-		Serial.print(((regVal + i) & 0x7F), HEX);
+		Serial.print((regVal != 0xFF ? (regVal + i) & 0x7F : 0x7F), HEX);
 		Serial.print(" | ");
 		Serial.println(value[i], HEX);
 		SPI.transfer(value[i]);
@@ -244,10 +273,10 @@ void Si4432::BurstRead(Registers startReg, byte value[], uint8_t length) {
 
 #ifdef DEBUG
 
-	for (int i = 0; i < length; ++i) {
+	for (byte i = 0; i < length; ++i) {
 		value[i] = SPI.transfer(0xFF);
 		Serial.print("Reading: ");
-		Serial.print((regVal + i) & 0x7F, HEX);
+		Serial.print((regVal != 0xFF ? (regVal + i) & 0x7F : 0x7F), HEX);
 		Serial.print(" | ");
 		Serial.println(value[i], HEX);
 	}
@@ -281,7 +310,7 @@ void Si4432::clearFIFO() {
 
 void Si4432::softReset() {
 	ChangeRegister(REG_STATE, 0x80);
-	delayMicroseconds(500);
+	delay(10);
 	boot();
 
 }

@@ -55,7 +55,7 @@ void init();
 
 protected:
 	enum AntennaMode {
-		RXMode = 0x04, TXMode = 0x08, Idle = 0x01, TuneMode = 0x02
+		RXMode = 0x04, TXMode = 0x08, Ready = 0x01, TuneMode = 0x02
 	};
 
 	uint8_t _sdnPin, _intPin;
@@ -67,7 +67,7 @@ protected:
 
 	void boot(); // sets SPI and pins ready and boot the radio
 
-	void switchMode(int mode);
+	void switchMode(byte mode);
 
 	enum Registers {
 		REG_DEV_TYPE = 0x00,

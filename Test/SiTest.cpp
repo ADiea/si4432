@@ -13,6 +13,9 @@ void setup() {
 	delay(100);
 	radio.init();
 
+	radio.setFrequency(900000000);
+	radio.readAll();
+
 // Add your initialization code here
 }
 
@@ -20,12 +23,14 @@ void setup() {
 void loop() {
 //Add your repeated code here
 
-	byte dummy[] = { 0x5, 0x6 , 0x10, 0x88};
+	byte dummy[15] = { 0x5, 0x6 , 0x10, 0x88};
 
 	byte resLen = 0;
 	byte answer[10] = {0};
 
-	bool pkg = radio.sendPacket(4, dummy, 1000, true, &resLen, answer);
+	bool pkg = radio.sendPacket(15, dummy, 5000, true, &resLen, answer);
+
+	//bool pkg = radio.waitForPacket(1000);
 
 	if(!pkg)
 	{
@@ -38,5 +43,4 @@ void loop() {
 	}
 
 	delay(200);
-	radio.clearTxFIFO();
 }
