@@ -4,8 +4,12 @@
 
 #define DEBUG
 
+//values here are kept in khz x 10 format (for not to deal with decimals) - look at AN440 page 26 for whole table
+const uint16_t IFFilterTable[][2] = { { 322, 0x26 }, { 3355, 0x88 }, { 3618, 0x89 }, { 4202, 0x8A }, { 4684, 0x8B }, {
+		5188, 0x8C }, { 5770, 0x8D }, { 6207, 0x8E } };
+
 Si4432::Si4432(uint8_t sdnPin, uint8_t InterruptPin) :
-		_sdnPin(sdnPin), _intPin(InterruptPin), _freqCarrier(433000000), _freqChannel(0), _bps(100000), _packageSign(
+		_sdnPin(sdnPin), _intPin(InterruptPin), _freqCarrier(433000000), _freqChannel(0), _kbps(100), _packageSign(
 				0xDEAD) { // default is 450 mhz
 
 }
@@ -25,7 +29,7 @@ void Si4432::setFrequency(unsigned long baseFrequency) {
 
 	uint8_t freqband = (uint8_t) fPart; // truncate the int
 
-	uint16_t freqcarrier = (fPart - (double) freqband) * 64000;
+	uint16_t freqcarrier = (fPart - freqband) * 64000;
 
 	// sideband is always on (0x40) :
 	byte vals[3] = { 0x40 | (highBand << 5) | (freqband & 0x3F), freqcarrier >> 8, freqcarrier & 0xFF };
@@ -51,7 +55,7 @@ void Si4432::setCommsSignature(uint16_t signature) {
 void Si4432::init() {
 
 	if (_intPin != 0)
-		pinMode(_intPin, INPUT_PULLUP);
+		pinMode(_intPin, INPUT);
 
 	pinMode(_sdnPin, OUTPUT);
 	digitalWrite(_sdnPin, HIGH); // keep reset pin high, so chip is turned off
@@ -88,15 +92,14 @@ void Si4432::boot() {
 
 	ChangeRegister(REG_TX_POWER, 0x1F); // max power
 
-	ChangeRegister(REG_MODULATION_MODE1, 0x0C);
-	ChangeRegister(REG_MODULATION_MODE2, 0x63); // use FIFO Mode, GFSK
-
 	ChangeRegister(REG_CHANNEL_STEPSIZE, 0x64); // each channel is of 1 Mhz interval
 
 	setFrequency(_freqCarrier); // default freq
-	setBaudRate(_bps); // default baud rate is 500kpbs
+	setBaudRate(_kbps); // default baud rate is 500kpbs
 	setChannel(_freqChannel); // default channel is 0
 	setCommsSignature(_packageSign); // default signature
+
+	switchMode(Ready);
 
 }
 
@@ -118,6 +121,8 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 	uint64_t enterMillis = millis();
 
 	while (millis() - enterMillis < ackTimeout) {
+		//ReadRegister(REG_EZMAC_STATUS);
+
 		if ((_intPin != 0) && (digitalRead(_intPin) != 0)) {
 			continue;
 		}
@@ -157,13 +162,15 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 
 bool Si4432::waitForPacket(uint64_t waitMs) {
 
-	switchMode(RXMode | Ready);
+
 
 	ChangeRegister(REG_INT_ENABLE1, 0x03); // set interrupts on for package received and CRC error
 	ChangeRegister(REG_INT_ENABLE2, 0x00); // set other interrupts off
 	//read interrupt registers to clean them
 	ReadRegister(REG_INT_STATUS1);
 	ReadRegister(REG_INT_STATUS2);
+
+	switchMode(RXMode | Ready);
 
 	uint64_t enterMillis = millis();
 
@@ -218,9 +225,13 @@ void Si4432::setChannel(byte channel) {
 
 void Si4432::switchMode(byte mode) {
 	ChangeRegister(REG_STATE, mode); // receive mode
-	delay(5);
+	delay(10);
 #ifdef DEBUG
-	ReadRegister(REG_DEV_STATUS);
+	byte val =  ReadRegister(REG_DEV_STATUS);
+	if(val == 0)
+	{
+		Serial.println("WHAT THE HELL!!!");
+	}
 #endif
 }
 
@@ -228,17 +239,70 @@ void Si4432::ChangeRegister(Registers reg, byte value) {
 	BurstWrite(reg, &value, 1);
 }
 
-void Si4432::setBaudRate(uint64_t bps) {
+void Si4432::setBaudRate(uint16_t kbps) {
 
-	if ((bps > 256000) || (bps < 30000)) // less then 30kpbs is normalliy ok, but i must find the proper register to change first - TODO
+	// chip normally supports very low bps values, but they are cumbersome to implement - so I just didn't implement lower bps values
+	if ((kbps > 256) || (kbps < 1))
 		return;
-		
-	_bps = bps;
-	uint16_t bpsRegVal = (bps / 1000000.0) * 65536;
+	_kbps = kbps;
 
-	byte vals[] = { bpsRegVal >> 8, bpsRegVal & 0x0F };
+	byte freqDev = kbps <= 10 ? 24 : 240; // 15khz / 150 khz
+	byte modulationValue = _kbps < 30 ? 0x4c : 0x0c; // use FIFO Mode, GFSK, low baud mode on / off
 
-	BurstWrite(REG_TX_DATARATE1, vals, 2);
+	byte modulationVals[] = { modulationValue, 0x23, freqDev }; // msb of the kpbs to 3rd bit of register
+	BurstWrite(REG_MODULATION_MODE1, modulationVals, 3);
+
+	// set data rate
+	uint16_t bpsRegVal = (kbps * (kbps < 30 ? 2097152 : 65536)) / 1000;
+	byte datarateVals[] = { bpsRegVal >> 8, bpsRegVal & 0xFF };
+
+	BurstWrite(REG_TX_DATARATE1, datarateVals, 2);
+
+	//now set the timings
+	uint16_t minBandwidth = ((2 * (uint32_t) freqDev * 625) / 100) + kbps;
+#ifdef DEBUG
+	Serial.print("min Bandwidth value: ");
+	Serial.println(minBandwidth, HEX);
+#endif
+	byte IFValue = 0xff;
+	//since the table is ordered (from low to high), just find the 'minimum bandwith which is greater than required'
+	for (byte i = 0; i < 8; ++i) {
+		if (IFFilterTable[i][0] >= minBandwidth) {
+			IFValue = IFFilterTable[i][1];
+			break;
+		}
+	}
+#ifdef DEBUG
+	Serial.print("Selected IF value: ");
+	Serial.println(IFValue, HEX);
+#endif
+	byte dwn3_bypass = (IFValue & 0x80) ? 1 : 0; // if msb is set
+	byte ndec_exp = (IFValue >> 4) & 0x07; // only 3 bits
+
+	uint16_t rxOversampling = (double) (500 * (1 + 2 * dwn3_bypass)) / ((pow(2, ndec_exp - 3)) * kbps);
+
+	uint32_t ncOffset = (kbps * (pow(2, ndec_exp + 20))) / (double) (500 * (1 + 2 * dwn3_bypass));
+
+	uint16_t crGain = 2 + ((65536 * (int64_t) kbps * 1000) / ((int64_t) rxOversampling * freqDev * 625));
+
+#ifdef DEBUG
+	Serial.print("dwn3_bypass value: ");
+	Serial.println(dwn3_bypass, HEX);
+	Serial.print("ndec_exp value: ");
+	Serial.println(ndec_exp, HEX);
+	Serial.print("rxOversampling value: ");
+	Serial.println(rxOversampling, HEX);
+	Serial.print("ncOffset value: ");
+	Serial.println(ncOffset, HEX);
+	Serial.print("crGain value: ");
+	Serial.println(crGain, HEX);
+#endif
+
+	byte timingVals[] = { rxOversampling & 0x00FF, ((rxOversampling & 0x0700) >> 3) | ((ncOffset >> 16) & 0x0F),
+			(ncOffset >> 8) & 0xFF, ncOffset & 0xFF, (crGain & 0x0300) >> 8, crGain & 0xFF };
+
+	BurstWrite(REG_CLOCK_RECOVERY_OVERSAMPLING, timingVals, 6);
+
 }
 
 byte Si4432::ReadRegister(Registers reg) {

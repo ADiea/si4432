@@ -32,7 +32,7 @@ public:
 
 	void setFrequency(unsigned long baseFrequency); // sets the freq. call before boot
 	void setChannel(byte channel); // sets the channel. call before switching to tx or rx mode
-	void setBaudRate(uint64_t bps); // sets the  bps. call before switching to tx or rx mode
+	void setBaudRate(uint16_t kbps); // sets the  bps. call before switching to tx or rx mode - min:1, max: 256
 	void init();
 	inline void setCommsSignature(uint16_t signature); // used to 'sign' packets with a predetermined signature - call before boot
 
@@ -62,7 +62,7 @@ protected:
 
 	uint64_t _freqCarrier;
 	uint8_t _freqChannel;
-	int64_t _bps;
+	uint16_t _kbps;
 	uint16_t _packageSign;
 
 	void boot(); // sets SPI and pins ready and boot the radio
@@ -94,7 +94,6 @@ protected:
 		REG_CLOCK_RECOVERY_OFFSET2 = 0x21,
 		REG_CLOCK_RECOVERY_OFFSET1 = 0x22,
 		REG_CLOCK_RECOVERY_OFFSET0 = 0x23,
-
 		REG_CLOCK_RECOVERY_TIMING_GAIN1 = 0x24,
 		REG_CLOCK_RECOVERY_TIMING_GAIN0 = 0x25,
 		REG_RSSI = 0x26,

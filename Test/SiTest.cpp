@@ -13,8 +13,8 @@ void setup() {
 	delay(100);
 	radio.init();
 
-	radio.setFrequency(900000000);
-	radio.readAll();
+	//radio.setFrequency(900000000);
+	//radio.readAll();
 
 // Add your initialization code here
 }
@@ -28,9 +28,9 @@ void loop() {
 	byte resLen = 0;
 	byte answer[10] = {0};
 
-	bool pkg = radio.sendPacket(15, dummy, 5000, true, &resLen, answer);
+	bool pkg = radio.sendPacket(6, dummy, 15000, true, &resLen, answer);
 
-	//bool pkg = radio.waitForPacket(1000);
+	//bool pkg = radio.waitForPacket(5000);
 
 	if(!pkg)
 	{
