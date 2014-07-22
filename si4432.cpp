@@ -5,7 +5,7 @@
 #define DEBUG
 
 Si4432::Si4432(uint8_t sdnPin, uint8_t InterruptPin) :
-		_sdnPin(sdnPin), _intPin(InterruptPin), _freqCarrier(433000000), _freqChannel(0), _bps(500000), _packageSign(
+		_sdnPin(sdnPin), _intPin(InterruptPin), _freqCarrier(433000000), _freqChannel(0), _bps(100000), _packageSign(
 				0xDEAD) { // default is 450 mhz
 
 }
@@ -79,10 +79,10 @@ void Si4432::boot() {
 	ChangeRegister(REG_GPIO2_CONF, 0x1C); // clear channel pin
 
 	ChangeRegister(REG_DATAACCESS_CONTROL, 0x8D); // enable rx packet handling, enable tx packet handling, enable CRC, use CRC-IBM
-	ChangeRegister(REG_HEADER_CONTROL1, 0x03); // no broadcast address control, enable check headers for bytes 0 & 1
+	ChangeRegister(REG_HEADER_CONTROL1, 0x0C); // no broadcast address control, enable check headers for bytes 0 & 1
 	ChangeRegister(REG_HEADER_CONTROL2, 0x22);  // enable headers byte 3 & 2, no fixed package length, sync word 3 & 2
 	ChangeRegister(REG_PREAMBLE_LENGTH, 0x08); // 8 * 4 bits = 32 bits (4 bytes) preamble length
-	ChangeRegister(REG_PREAMBLE_DETECTION, 0x80); // validate 8 * 4 bits of preamble  in a package
+	ChangeRegister(REG_PREAMBLE_DETECTION, 0x3A); // validate 7 * 4 bits of preamble  in a package
 	ChangeRegister(REG_SYNC_WORD3, 0x2D); // sync byte 3 val
 	ChangeRegister(REG_SYNC_WORD2, 0xD4); // sync byte 2 val
 
