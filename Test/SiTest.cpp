@@ -13,7 +13,7 @@ void setup() {
 	Serial.begin(115200);
 	delay(300);
 	radio.init();
-	radio.setBaudRate(35);
+	radio.setBaudRate(45);
 	radio.setFrequency(400);
 	radio.readAll();
 
@@ -24,15 +24,15 @@ void setup() {
 void loop() {
 //Add your repeated code here
 
-	byte dummy[15] = { 0x01, 0x3, 0x11, 0x13 };
+	byte dummy[70] = { 0x01, 0x3, 0x11, 0x13 };
 #ifdef TX
 	byte resLen = 0;
 	byte answer[64] = {0};
 
-	bool pkg = radio.sendPacket(6, dummy, 15, true, &resLen, answer);
+	bool pkg = radio.sendPacket(32, dummy, 50, true, &resLen, answer);
 #endif
 #ifdef RX
-	bool pkg = radio.waitForPacket(10);
+	bool pkg = radio.waitForPacket(100);
 #endif
 	if (pkg) {
 #ifdef TX
@@ -61,7 +61,7 @@ void loop() {
 		Serial.println(" ");
 
 		Serial.print("Sending response- ");
-		while (!radio.sendPacket(6, dummy, 15))
+		while (!radio.sendPacket(50, dummy, 50))
 		;
 		Serial.println(" SENT!");
 #endif

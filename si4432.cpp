@@ -113,6 +113,7 @@ void Si4432::boot() {
 bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, bool waitResponse,
 		uint8_t* responseLength, byte* responseBuffer) {
 
+	clearTxFIFO();
 	ChangeRegister(REG_PKG_LEN, length);
 
 	BurstWrite(REG_FIFO, data, length);
@@ -137,6 +138,7 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 		ReadRegister(REG_INT_STATUS2);
 
 		if (intStatus & 0x04) {
+			delay(2);
 			switchMode(TuneMode | Ready);
 #ifdef DEBUG
 			Serial.print("Package sent! -- ");
@@ -165,13 +167,18 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 	Serial.println("Timeout in Transit -- ");
 //#endif
 	switchMode(TuneMode | Ready);
-	clearTxFIFO();
+
+	if (ReadRegister(REG_DEV_STATUS) & 0x80) {
+		clearFIFO();
+	}
 
 	return false;
 
 }
 
 bool Si4432::waitForPacket(uint64_t waitMs) {
+
+	clearRxFIFO();
 
 	ChangeRegister(REG_INT_ENABLE1, 0x03); // set interrupts on for package received and CRC error
 	ChangeRegister(REG_INT_ENABLE2, 0xc0); // set other interrupts off
@@ -227,12 +234,12 @@ bool Si4432::waitForPacket(uint64_t waitMs) {
 		}
 	}
 	//timeout occured.
-#ifdef DEBUG
+
 	Serial.println("Timeout in receive-- ");
-#endif
+
 
 	switchMode(TuneMode | Ready);
-	clearRxFIFO();
+	//clearRxFIFO();
 
 	return false;
 }
