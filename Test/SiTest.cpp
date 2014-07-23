@@ -2,7 +2,8 @@
 #include "SiTest.h"
 #include "si4432.h"
 
-#define DEBUG
+#include "define.h"
+
 
 Si4432 radio(7, 6);
 
@@ -10,11 +11,11 @@ Si4432 radio(7, 6);
 void setup() {
 
 	Serial.begin(115200);
-	delay(100);
+	delay(300);
 	radio.init();
-
-	//radio.setFrequency(900000000);
-	//radio.readAll();
+	radio.setBaudRate(35);
+	radio.setFrequency(400);
+	radio.readAll();
 
 // Add your initialization code here
 }
@@ -23,24 +24,48 @@ void setup() {
 void loop() {
 //Add your repeated code here
 
-	byte dummy[15] = { 0x5, 0x6 , 0x10, 0x88};
-
+	byte dummy[15] = { 0x01, 0x3, 0x11, 0x13 };
+#ifdef TX
 	byte resLen = 0;
-	byte answer[10] = {0};
+	byte answer[64] = {0};
 
-	bool pkg = radio.sendPacket(6, dummy, 15000, true, &resLen, answer);
+	bool pkg = radio.sendPacket(6, dummy, 15, true, &resLen, answer);
+#endif
+#ifdef RX
+	bool pkg = radio.waitForPacket(10);
+#endif
+	if (pkg) {
+#ifdef TX
+		Serial.print("PACKET CAME - ");
+		Serial.println((int) resLen, DEC);
 
-	//bool pkg = radio.waitForPacket(5000);
+		for (byte i = 0; i < resLen; ++i) {
+			Serial.print(answer[i], HEX);
+			Serial.print(" ");
+		}
+		Serial.println();
+#endif
 
-	if(!pkg)
-	{
-		Serial.println("No answer!");
-	} else
-	{
+#ifdef RX
+
 		byte payLoad[64] = {0};
 		byte len = 0;
 		radio.getPacketReceived(&len, payLoad);
+		Serial.print("PACKET CAME - ");
+		Serial.println(len, DEC);
+
+		for (byte i = 0; i < len; ++i) {
+			Serial.print((int) payLoad[i], HEX);
+			Serial.print(" ");
+		}
+		Serial.println(" ");
+
+		Serial.print("Sending response- ");
+		while (!radio.sendPacket(6, dummy, 15))
+		;
+		Serial.println(" SENT!");
+#endif
 	}
 
-	delay(200);
+//delay(200);
 }
