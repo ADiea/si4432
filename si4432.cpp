@@ -2,6 +2,7 @@
 
 #include <SPI.h>
 
+#define MAX_TRANSMIT_TIMEOUT 200
 // #define DEBUG
 
 //values here are kept in khz x 10 format (for not to deal with decimals) - look at AN440 page 26 for whole table
@@ -110,7 +111,7 @@ void Si4432::boot() {
 
 }
 
-bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, bool waitResponse,
+bool Si4432::sendPacket(uint8_t length, const byte* data, bool waitResponse, uint32_t ackTimeout,
 		uint8_t* responseLength, byte* responseBuffer) {
 
 	clearTxFIFO();
@@ -124,11 +125,11 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 	ReadRegister(REG_INT_STATUS1);
 	ReadRegister(REG_INT_STATUS2);
 
-	switchMode(TXMode | TuneMode | Ready);
+	switchMode(TXMode | Ready);
 
 	uint64_t enterMillis = millis();
 
-	while (millis() - enterMillis < ackTimeout) {
+	while (millis() - enterMillis < MAX_TRANSMIT_TIMEOUT) {
 
 		if ((_intPin != 0) && (digitalRead(_intPin) != 0)) {
 			continue;
@@ -138,7 +139,6 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 		ReadRegister(REG_INT_STATUS2);
 
 		if (intStatus & 0x04) {
-			delay(2);
 			switchMode(Ready | TuneMode);
 #ifdef DEBUG
 			Serial.print("Package sent! -- ");
@@ -146,12 +146,8 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 #endif
 			// package sent. now, return true if not to wait ack, or wait ack (wait for packet only for 'remaining' amount of time)
 			if (waitResponse) {
-				if (intStatus & 0x02) { // if there is a packet received
+				if (waitForPacket(ackTimeout)) {
 					getPacketReceived(responseLength, responseBuffer);
-					softReset();
-				} else if (waitForPacket(ackTimeout)) {
-					getPacketReceived(responseLength, responseBuffer);
-					softReset();
 					return true;
 				} else {
 					return false;
@@ -178,70 +174,24 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 
 bool Si4432::waitForPacket(uint64_t waitMs) {
 
-	clearRxFIFO();
-
-	ChangeRegister(REG_INT_ENABLE1, 0x03); // set interrupts on for package received and CRC error
-	ChangeRegister(REG_INT_ENABLE2, 0x00); // set other interrupts off
-	//read interrupt registers to clean them
-	ReadRegister(REG_INT_STATUS1);
-	ReadRegister(REG_INT_STATUS2);
-
-	switchMode(RXMode | Ready);
-	//Serial.print("RECV MODE: ");
-	//Serial.println(ReadRegister(REG_STATE), HEX);
+	startListening();
 
 	uint64_t enterMillis = millis();
 	while (millis() - enterMillis < waitMs) {
 
-		if ((_intPin != 0) && (digitalRead(_intPin) != 0)) {
+		if (!isPacketReceived()) {
 			continue;
-		}
-		// check for package received status interrupt register
-		byte intStat = ReadRegister(REG_INT_STATUS1);
-
-#ifdef DEBUG
-		byte intStat2 = ReadRegister(REG_INT_STATUS2);
-
-		if (intStat2 & 0x40) { //interrupt occured, check it && read the Interrupt Status1 register for 'preamble '
-
-			Serial.print("HEY!! HEY!! Valid Preamble detected -- ");
-			Serial.println(intStat2, HEX);
-
-		}
-
-		if (intStat2 & 0x80) { //interrupt occured, check it && read the Interrupt Status1 register for 'preamble '
-
-			Serial.print("HEY!! HEY!! SYNC WORD detected -- ");
-			Serial.println(intStat2, HEX);
-
-		}
-#else
-		ReadRegister(REG_INT_STATUS2);
-#endif
-
-		if (intStat & 0x02) { //interrupt occured, check it && read the Interrupt Status1 register for 'valid packet'
-			switchMode(Ready);
-//#ifdef DEBUG
-			Serial.print("Packet detected -- ");
-			Serial.println(intStat, HEX);
-//#endif
+		} else {
 			return true;
-		} else if (intStat & 0x01) { // packet crc error
-			switchMode(Ready);
-//#ifdef DEBUG
-			Serial.print("CRC Error in Packet detected!-- ");
-			Serial.println(intStat, HEX);
-//#endif
-			clearRxFIFO();
-			return false;
 		}
+
 	}
 	//timeout occured.
 
 	Serial.println("Timeout in receive-- ");
 
 	switchMode(Ready);
-	//clearRxFIFO();
+	clearRxFIFO();
 
 	return false;
 }
@@ -252,6 +202,7 @@ void Si4432::getPacketReceived(uint8_t* length, byte* readData) {
 
 	BurstRead(REG_FIFO, readData, *length);
 
+	clearRxFIFO(); // which will also clear the interrupts
 }
 
 void Si4432::setChannel(byte channel) {
@@ -461,4 +412,73 @@ void Si4432::hardReset() {
 	}
 
 	boot();
+}
+
+void Si4432::startListening() {
+
+	clearRxFIFO(); // clear first, so it doesn't overflow if packet is big
+
+	ChangeRegister(REG_INT_ENABLE1, 0x03); // set interrupts on for package received and CRC error
+
+#ifdef DEBUG
+	ChangeRegister(REG_INT_ENABLE2, 0xC0);
+#else
+	ChangeRegister(REG_INT_ENABLE2, 0x00); // set other interrupts off
+#endif
+	//read interrupt registers to clean them
+	ReadRegister(REG_INT_STATUS1);
+	ReadRegister(REG_INT_STATUS2);
+
+	switchMode(RXMode | Ready);
+}
+
+bool Si4432::isPacketReceived() {
+
+	if ((_intPin != 0) && (digitalRead(_intPin) != 0)) {
+		return false; // if no interrupt occured, no packet received is assumed (since startListening will be called prior, this assumption is enough)
+	}
+	// check for package received status interrupt register
+	byte intStat = ReadRegister(REG_INT_STATUS1);
+
+#ifdef DEBUG
+	byte intStat2 = ReadRegister(REG_INT_STATUS2);
+
+	if (intStat2 & 0x40) { //interrupt occured, check it && read the Interrupt Status1 register for 'preamble '
+
+		Serial.print("HEY!! HEY!! Valid Preamble detected -- ");
+		Serial.println(intStat2, HEX);
+
+	}
+
+	if (intStat2 & 0x80) { //interrupt occured, check it && read the Interrupt Status1 register for 'preamble '
+
+		Serial.print("HEY!! HEY!! SYNC WORD detected -- ");
+		Serial.println(intStat2, HEX);
+
+	}
+#else
+	ReadRegister(REG_INT_STATUS2);
+#endif
+
+	if (intStat & 0x02) { //interrupt occured, check it && read the Interrupt Status1 register for 'valid packet'
+		switchMode(Ready | TuneMode); // if packet came, get out of Rx mode till the packet is read out. Keep PLL on for fast reaction
+#ifdef DEBUG
+				Serial.print("Packet detected -- ");
+				Serial.println(intStat, HEX);
+#endif
+		return true;
+	} else if (intStat & 0x01) { // packet crc error
+		switchMode(Ready); // get out of Rx mode till buffers are cleared
+//#ifdef DEBUG
+		Serial.print("CRC Error in Packet detected!-- ");
+		Serial.println(intStat, HEX);
+//#endif
+		clearRxFIFO();
+		switchMode(RXMode | Ready); // get back to work
+		return false;
+	}
+
+	//no relevant interrupt? no packet!
+
+	return false;
 }

@@ -4,9 +4,8 @@
 
 #include "define.h"
 
-
 Si4432 radio(7, 6);
-
+unsigned long pTime;
 //The setup function is called once at startup of the sketch
 void setup() {
 
@@ -17,6 +16,10 @@ void setup() {
 	radio.setFrequency(400);
 	radio.readAll();
 
+#ifdef RX
+	radio.startListening();
+#endif
+	pTime = millis();
 // Add your initialization code here
 }
 
@@ -27,12 +30,12 @@ void loop() {
 	byte dummy[70] = { 0x01, 0x3, 0x11, 0x13 };
 #ifdef TX
 	byte resLen = 0;
-	byte answer[64] = {0};
+	byte answer[64] = { 0 };
 
-	bool pkg = radio.sendPacket(32, dummy, 50, true, &resLen, answer);
+	bool pkg = radio.sendPacket(32, dummy, true, 35, &resLen, answer);
 #endif
 #ifdef RX
-	bool pkg = radio.waitForPacket(100);
+	bool pkg = radio.isPacketReceived();
 #endif
 	if (pkg) {
 #ifdef TX
@@ -52,8 +55,11 @@ void loop() {
 		byte len = 0;
 		radio.getPacketReceived(&len, payLoad);
 		Serial.print("PACKET CAME - ");
-		Serial.println(len, DEC);
+		Serial.print(len, DEC);
+		Serial.print(" - ");
+		Serial.println(millis() - pTime, DEC);
 
+		pTime = millis();
 		for (byte i = 0; i < len; ++i) {
 			Serial.print((int) payLoad[i], HEX);
 			Serial.print(" ");
@@ -61,9 +67,15 @@ void loop() {
 		Serial.println(" ");
 
 		Serial.print("Sending response- ");
-		while (!radio.sendPacket(50, dummy, 50))
+		while (!radio.sendPacket(50, dummy))
 		;
 		Serial.println(" SENT!");
+
+		radio.startListening(); // restart the listening.
+#endif
+	} else {
+#ifdef RX
+		//Serial.println("No packet this cycle");
 #endif
 	}
 

@@ -36,11 +36,15 @@ public:
 	void init();
 	inline void setCommsSignature(uint16_t signature); // used to 'sign' packets with a predetermined signature - call before boot
 
-	bool sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, bool waitResponse = false,
+	bool sendPacket(uint8_t length, const byte* data, bool waitResponse = false, uint32_t ackTimeout = 100,
 			uint8_t *responseLength = 0, byte* responseBuffer = 0); // switches to Tx mode and sends the package, then optionally receives response package
 
-	bool waitForPacket(uint64_t waitMs); // switch to Rx mode
-	void getPacketReceived(uint8_t* length, byte* readData); // wait for the 'valid' package to arrive and read from Rx FIFO - returns false if no package or erroneous package received
+	void startListening(); // switch to Rx mode (don't block)
+
+	bool isPacketReceived(); // check for the packet received flags
+
+	bool waitForPacket(uint64_t waitMs); // switch to Rx mode and wait until timeout or 'valid' package to arrive
+	void getPacketReceived(uint8_t* length, byte* readData); // read from FIFO
 
 	void readAll();
 
