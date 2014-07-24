@@ -65,7 +65,7 @@ void Si4432::init() {
 
 	SPI.begin();
 	SPI.setBitOrder(MSBFIRST);
-	SPI.setClockDivider(SPI_CLOCK_DIV2); // 16/ 2 = 8 MHZ. Max. is 10 MHZ, so we're cool.
+	SPI.setClockDivider(SPI_CLOCK_DIV16); // 16/ 2 = 8 MHZ. Max. is 10 MHZ, so we're cool.
 	SPI.setDataMode(SPI_MODE0);
 
 #ifdef DEBUG
@@ -77,14 +77,14 @@ void Si4432::init() {
 }
 
 void Si4432::boot() {
+	/*
+	 byte currentFix[] = { 0x80, 0x40, 0x7F };
+	 BurstWrite(REG_CHARGEPUMP_OVERRIDE, currentFix, 3); // refer to AN440 for reasons
 
-	byte currentFix[] = { 0x80, 0x40, 0x7F };
-	BurstWrite(REG_CHARGEPUMP_OVERRIDE, currentFix, 3); // refer to AN440 for reasons
-
-	ChangeRegister(REG_GPIO0_CONF, 0x0F); // tx/rx data clk pin
-	ChangeRegister(REG_GPIO1_CONF, 0x00); // POR inverted pin
-	ChangeRegister(REG_GPIO2_CONF, 0x1C); // clear channel pin
-
+	 ChangeRegister(REG_GPIO0_CONF, 0x0F); // tx/rx data clk pin
+	 ChangeRegister(REG_GPIO1_CONF, 0x00); // POR inverted pin
+	 ChangeRegister(REG_GPIO2_CONF, 0x1C); // clear channel pin
+	 */
 	ChangeRegister(REG_AFC_TIMING_CONTROL, 0x02); // refer to AN440 for reasons
 	ChangeRegister(REG_AFC_LIMITER, 0xFF); // write max value - excel file did that.
 	ChangeRegister(REG_AGC_OVERRIDE, 0x60); // max gain control
@@ -106,7 +106,7 @@ void Si4432::boot() {
 	setChannel(_freqChannel); // default channel is 0
 	setCommsSignature(_packageSign); // default signature
 
-	switchMode(Ready | TuneMode);
+	switchMode(Ready);
 
 }
 
@@ -139,7 +139,7 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 
 		if (intStatus & 0x04) {
 			delay(2);
-			switchMode(TuneMode | Ready);
+			switchMode(Ready | TuneMode);
 #ifdef DEBUG
 			Serial.print("Package sent! -- ");
 			Serial.println(intStatus, HEX);
@@ -166,7 +166,7 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, uint64_t ackTimeout, b
 //#ifdef DEBUG
 	Serial.println("Timeout in Transit -- ");
 //#endif
-	switchMode(TuneMode | Ready);
+	switchMode(Ready);
 
 	if (ReadRegister(REG_DEV_STATUS) & 0x80) {
 		clearFIFO();
@@ -181,12 +181,12 @@ bool Si4432::waitForPacket(uint64_t waitMs) {
 	clearRxFIFO();
 
 	ChangeRegister(REG_INT_ENABLE1, 0x03); // set interrupts on for package received and CRC error
-	ChangeRegister(REG_INT_ENABLE2, 0xc0); // set other interrupts off
+	ChangeRegister(REG_INT_ENABLE2, 0x00); // set other interrupts off
 	//read interrupt registers to clean them
 	ReadRegister(REG_INT_STATUS1);
 	ReadRegister(REG_INT_STATUS2);
 
-	switchMode(TuneMode | RXMode | Ready);
+	switchMode(RXMode | Ready);
 	//Serial.print("RECV MODE: ");
 	//Serial.println(ReadRegister(REG_STATE), HEX);
 
@@ -198,33 +198,36 @@ bool Si4432::waitForPacket(uint64_t waitMs) {
 		}
 		// check for package received status interrupt register
 		byte intStat = ReadRegister(REG_INT_STATUS1);
+
+#ifdef DEBUG
 		byte intStat2 = ReadRegister(REG_INT_STATUS2);
 
 		if (intStat2 & 0x40) { //interrupt occured, check it && read the Interrupt Status1 register for 'preamble '
 
-#ifdef DEBUG
 			Serial.print("HEY!! HEY!! Valid Preamble detected -- ");
 			Serial.println(intStat2, HEX);
-#endif
+
 		}
 
 		if (intStat2 & 0x80) { //interrupt occured, check it && read the Interrupt Status1 register for 'preamble '
 
-#ifdef DEBUG
 			Serial.print("HEY!! HEY!! SYNC WORD detected -- ");
 			Serial.println(intStat2, HEX);
-#endif
+
 		}
+#else
+		ReadRegister(REG_INT_STATUS2);
+#endif
 
 		if (intStat & 0x02) { //interrupt occured, check it && read the Interrupt Status1 register for 'valid packet'
-
+			switchMode(Ready);
 //#ifdef DEBUG
 			Serial.print("Packet detected -- ");
 			Serial.println(intStat, HEX);
 //#endif
 			return true;
 		} else if (intStat & 0x01) { // packet crc error
-
+			switchMode(Ready);
 //#ifdef DEBUG
 			Serial.print("CRC Error in Packet detected!-- ");
 			Serial.println(intStat, HEX);
@@ -237,8 +240,7 @@ bool Si4432::waitForPacket(uint64_t waitMs) {
 
 	Serial.println("Timeout in receive-- ");
 
-
-	switchMode(TuneMode | Ready);
+	switchMode(Ready);
 	//clearRxFIFO();
 
 	return false;
@@ -431,7 +433,13 @@ void Si4432::clearFIFO() {
 
 void Si4432::softReset() {
 	ChangeRegister(REG_STATE, 0x80);
-	delay(20);
+
+	byte reg = ReadRegister(REG_INT_STATUS2);
+	while ((reg & 0x02) != 0x02) {
+		delay(1);
+		reg = ReadRegister(REG_INT_STATUS2);
+	}
+
 	boot();
 
 }
@@ -439,9 +447,18 @@ void Si4432::softReset() {
 void Si4432::hardReset() {
 
 	digitalWrite(_sdnPin, HIGH); // turn off the chip now
-
+	delay(1);
 	digitalWrite(_sdnPin, LOW); // turn off the chip now
-	delay(50);
+	delay(20);
+
+	byte reg = ReadRegister(REG_INT_STATUS2);
+	while ((reg & 0x02) != 0x02) {
+
+		Serial.print("POR: ");
+		Serial.println(reg, HEX);
+		delay(1);
+		reg = ReadRegister(REG_INT_STATUS2);
+	}
 
 	boot();
 }
