@@ -12,8 +12,8 @@ void setup() {
 	Serial.begin(115200);
 	delay(300);
 	radio.init();
-	radio.setBaudRate(45);
-	radio.setFrequency(400);
+	radio.setBaudRate(70);
+	radio.setFrequency(433);
 	radio.readAll();
 
 #ifdef RX
