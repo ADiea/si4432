@@ -34,7 +34,7 @@ public:
 	void setChannel(byte channel); // sets the channel. call before switching to tx or rx mode
 	void setBaudRate(uint16_t kbps); // sets the  bps. call before switching to tx or rx mode - min:1, max: 256
 	void init();
-	inline void setCommsSignature(uint16_t signature); // used to 'sign' packets with a predetermined signature - call before boot
+	void setCommsSignature(uint16_t signature); // used to 'sign' packets with a predetermined signature - call before boot
 
 	bool sendPacket(uint8_t length, const byte* data, bool waitResponse = false, uint32_t ackTimeout = 100,
 			uint8_t *responseLength = 0, byte* responseBuffer = 0); // switches to Tx mode and sends the package, then optionally receives response package

@@ -3,7 +3,6 @@
 	<name>si4432</name>
 	<comment></comment>
 	<projects>
-		<project>Arduino_Mega_2560_or_Mega_ADK</project>
 		<project>Arduino_Nano_w__ATmega328</project>
 	</projects>
 	<buildSpec>
