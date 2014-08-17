@@ -56,10 +56,10 @@ void Si4432::setCommsSignature(uint16_t signature) {
 void Si4432::init() {
 
 	if (_intPin != 0)
-		pinMode(_intPin, INPUT_PULLUP);
+		pinMode(_intPin, INPUT);
 
 	pinMode(_sdnPin, OUTPUT);
-	digitalWrite(_sdnPin, HIGH); // keep reset pin high, so chip is turned off
+	turnOff();
 
 	pinMode(SS, OUTPUT);
 	digitalWrite(SS, HIGH); // set pin high, so chip would know we don't use it. - well, it's turned off anyway but...
@@ -397,10 +397,8 @@ void Si4432::softReset() {
 
 void Si4432::hardReset() {
 
-	digitalWrite(_sdnPin, HIGH); // turn off the chip now
-	delay(1);
-	digitalWrite(_sdnPin, LOW); // turn off the chip now
-	delay(20);
+	turnOff();
+	turnOn();
 
 	byte reg = ReadRegister(REG_INT_STATUS2);
 	while ((reg & 0x02) != 0x02) {
@@ -481,4 +479,15 @@ bool Si4432::isPacketReceived() {
 	//no relevant interrupt? no packet!
 
 	return false;
+}
+
+void Si4432::turnOn() {
+	digitalWrite(_sdnPin, LOW); // turn on the chip now
+	delay(20);
+}
+
+void Si4432::turnOff() {
+	digitalWrite(_sdnPin, HIGH); // turn off the chip now
+	delay(1);
+
 }

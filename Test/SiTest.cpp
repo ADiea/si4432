@@ -32,7 +32,7 @@ void loop() {
 	byte resLen = 0;
 	byte answer[64] = { 0 };
 
-	bool pkg = radio.sendPacket(32, dummy, true, 35, &resLen, answer);
+	bool pkg = radio.sendPacket(32, dummy, true, 70, &resLen, answer);
 #endif
 #ifdef RX
 	bool pkg = radio.isPacketReceived();

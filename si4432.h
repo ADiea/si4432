@@ -57,6 +57,9 @@ public:
 
 	void hardReset();
 
+	void turnOn();
+	void turnOff();
+
 protected:
 	enum AntennaMode {
 		RXMode = 0x04, TXMode = 0x08, Ready = 0x01, TuneMode = 0x02
