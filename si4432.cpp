@@ -158,7 +158,7 @@ bool Si4432::sendPacket(uint8_t length, const byte* data, bool waitResponse, uin
 		}
 	}
 
-	//timeout occured.
+	//timeout occurred.
 //#ifdef DEBUG
 	Serial.println("Timeout in Transit -- ");
 //#endif
@@ -186,7 +186,7 @@ bool Si4432::waitForPacket(uint64_t waitMs) {
 		}
 
 	}
-	//timeout occured.
+	//timeout occurred.
 
 	Serial.println("Timeout in receive-- ");
 
@@ -254,7 +254,7 @@ void Si4432::setBaudRate(uint16_t kbps) {
 	Serial.println(minBandwidth, HEX);
 #endif
 	byte IFValue = 0xff;
-	//since the table is ordered (from low to high), just find the 'minimum bandwith which is greater than required'
+	//since the table is ordered (from low to high), just find the 'minimum bandwidth which is greater than required'
 	for (byte i = 0; i < 8; ++i) {
 		if (IFFilterTable[i][0] >= (minBandwidth * 10)) {
 			IFValue = IFFilterTable[i][1];
@@ -433,7 +433,7 @@ void Si4432::startListening() {
 bool Si4432::isPacketReceived() {
 
 	if ((_intPin != 0) && (digitalRead(_intPin) != 0)) {
-		return false; // if no interrupt occured, no packet received is assumed (since startListening will be called prior, this assumption is enough)
+		return false; // if no interrupt occurred, no packet received is assumed (since startListening will be called prior, this assumption is enough)
 	}
 	// check for package received status interrupt register
 	byte intStat = ReadRegister(REG_INT_STATUS1);
@@ -441,14 +441,14 @@ bool Si4432::isPacketReceived() {
 #ifdef DEBUG
 	byte intStat2 = ReadRegister(REG_INT_STATUS2);
 
-	if (intStat2 & 0x40) { //interrupt occured, check it && read the Interrupt Status1 register for 'preamble '
+	if (intStat2 & 0x40) { //interrupt occurred, check it && read the Interrupt Status1 register for 'preamble '
 
 		Serial.print("HEY!! HEY!! Valid Preamble detected -- ");
 		Serial.println(intStat2, HEX);
 
 	}
 
-	if (intStat2 & 0x80) { //interrupt occured, check it && read the Interrupt Status1 register for 'preamble '
+	if (intStat2 & 0x80) { //interrupt occurred, check it && read the Interrupt Status1 register for 'preamble '
 
 		Serial.print("HEY!! HEY!! SYNC WORD detected -- ");
 		Serial.println(intStat2, HEX);
@@ -458,7 +458,7 @@ bool Si4432::isPacketReceived() {
 	ReadRegister(REG_INT_STATUS2);
 #endif
 
-	if (intStat & 0x02) { //interrupt occured, check it && read the Interrupt Status1 register for 'valid packet'
+	if (intStat & 0x02) { //interrupt occurred, check it && read the Interrupt Status1 register for 'valid packet'
 		switchMode(Ready | TuneMode); // if packet came, get out of Rx mode till the packet is read out. Keep PLL on for fast reaction
 #ifdef DEBUG
 				Serial.print("Packet detected -- ");
